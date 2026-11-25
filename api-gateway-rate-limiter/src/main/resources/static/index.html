@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rate Limiter Dashboard</title>
+<style>
+  :root { --bg:#0f172a; --card:#1e293b; --text:#e2e8f0; --muted:#94a3b8; --ok:#22c55e; --bad:#ef4444; --accent:#38bdf8; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--text); padding:24px; }
+  h1 { margin:0 0 4px; font-size:1.5rem; }
+  p.sub { margin:0 0 24px; color:var(--muted); }
+  .grid { display:grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap:16px; }
+  .card { background:var(--card); border-radius:12px; padding:20px; }
+  .card h2 { margin:0 0 14px; font-size:1rem; color:var(--accent); }
+  label { display:block; font-size:.8rem; color:var(--muted); margin:10px 0 4px; }
+  select, input, button { width:100%; padding:10px; border-radius:8px; border:1px solid #334155; background:#0f172a; color:var(--text); font-size:.95rem; }
+  button { background:var(--accent); color:#0f172a; font-weight:600; cursor:pointer; border:none; margin-top:14px; }
+  button.secondary { background:transparent; color:var(--muted); border:1px solid #334155; margin-top:8px; }
+  .stats { display:flex; gap:12px; }
+  .stat { flex:1; background:#0f172a; border-radius:10px; padding:14px; text-align:center; }
+  .stat b { display:block; font-size:1.8rem; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); }
+  .bar { display:flex; gap:3px; flex-wrap:wrap; margin-top:14px; min-height:26px; }
+  .dot { width:18px; height:18px; border-radius:4px; }
+  .dot.ok { background:var(--ok); } .dot.bad { background:var(--bad); }
+  pre { background:#0f172a; border-radius:8px; padding:12px; font-size:.8rem; overflow:auto; max-height:240px; margin:12px 0 0; }
+  .note { font-size:.8rem; color:var(--muted); margin-top:10px; }
+</style>
+</head>
+<body>
+<h1>API Gateway &mdash; Distributed Rate Limiter</h1>
+<p class="sub">Redis-backed Token Bucket. Send a burst and watch requests get throttled with HTTP 429.</p>
+
+<div class="grid">
+  <div class="card">
+    <h2>Send traffic</h2>
+    <label for="key">Client</label>
+    <select id="key">
+      <option value="">Anonymous (default tier: burst 10, 5/s)</option>
+      <option value="free-key">free-key (burst 5, 1/s)</option>
+      <option value="pro-key">pro-key (burst 50, 20/s)</option>
+    </select>
+    <label for="count">Number of requests</label>
+    <input id="count" type="number" min="1" max="200" value="30">
+    <label for="delay">Delay between requests (ms)</label>
+    <input id="delay" type="number" min="0" max="2000" value="20">
+    <button id="send">Send burst</button>
+    <button id="reset" class="secondary">Reset stats</button>
+    <div class="bar" id="bar"></div>
+    <div class="note" id="last"></div>
+  </div>
+
+  <div class="card">
+    <h2>Cluster stats (live, from Redis)</h2>
+    <div class="stats">
+      <div class="stat"><b class="ok" id="allowed">0</b>Allowed</div>
+      <div class="stat"><b class="bad" id="blocked">0</b>Blocked (429)</div>
+    </div>
+    <pre id="clients">No traffic yet.</pre>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function sendBurst() {
+  const n = +$('count').value, delay = +$('delay').value, key = $('key').value;
+  $('bar').innerHTML = ''; $('send').disabled = true;
+  for (let i = 0; i < n; i++) {
+    const res = await fetch('/gateway/hello', { headers: key ? { 'X-API-Key': key } : {} });
+    const dot = document.createElement('div');
+    dot.className = 'dot ' + (res.ok ? 'ok' : 'bad');
+    dot.title = `#${i + 1}: HTTP ${res.status}`;
+    $('bar').appendChild(dot);
+    $('last').textContent = `Last: HTTP ${res.status} | remaining ${res.headers.get('X-RateLimit-Remaining')}`
+      + (res.status === 429 ? ` | retry after ${res.headers.get('Retry-After')}s` : '');
+    if (delay) await sleep(delay);
+  }
+  $('send').disabled = false;
+  refresh();
+}
+
+async function refresh() {
+  try {
+    const s = await (await fetch('/admin/stats')).json();
+    $('allowed').textContent = s.allowed;
+    $('blocked').textContent = s.blocked;
+    $('clients').textContent = Object.keys(s.clients).length
+      ? JSON.stringify(s.clients, null, 2) : 'No traffic yet.';
+  } catch (e) { /* server restarting */ }
+}
+
+$('send').onclick = sendBurst;
+$('reset').onclick = async () => { await fetch('/admin/stats', { method: 'DELETE' }); $('bar').innerHTML=''; refresh(); };
+setInterval(refresh, 1500);
+refresh();
+</script>
+</body>
+</html>

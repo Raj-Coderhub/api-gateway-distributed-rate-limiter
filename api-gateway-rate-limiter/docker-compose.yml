@@ -1,0 +1,25 @@
+# Two gateway instances share ONE Redis, which demonstrates the "distributed" part:
+# hit :8081 and :8082 with the same API key and they drain the same bucket.
+services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  gateway-1:
+    build: .
+    environment:
+      REDIS_HOST: redis
+    ports:
+      - "8081:8080"
+    depends_on:
+      - redis
+
+  gateway-2:
+    build: .
+    environment:
+      REDIS_HOST: redis
+    ports:
+      - "8082:8080"
+    depends_on:
+      - redis

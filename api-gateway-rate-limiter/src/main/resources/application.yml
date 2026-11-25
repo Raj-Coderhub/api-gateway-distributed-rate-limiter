@@ -1,0 +1,35 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway-rate-limiter
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 500ms
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+ratelimit:
+  # Where /gateway/** requests are forwarded. Default is the built-in demo service.
+  upstream-url: ${UPSTREAM_URL:http://localhost:8080/demo}
+  # Allow traffic through if Redis is down (true) or reject with 503 (false).
+  fail-open: true
+  # Anonymous / default clients (identified by IP).
+  default-tier:
+    capacity: 10        # max burst
+    refill-rate: 5      # tokens per second (sustained rate)
+  # Clients identified by the X-API-Key header.
+  tiers:
+    free-key:
+      capacity: 5
+      refill-rate: 1
+    pro-key:
+      capacity: 50
+      refill-rate: 20
